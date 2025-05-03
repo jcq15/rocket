@@ -1,0 +1,22 @@
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 虚拟环境
+env/
+venv/
+ENV/
+.env
+
+# 日志文件
+rocket.log
+*.log
+
+# IDE 配置
+.vscode/
+.idea/ 
+
+# 临时文件
+data/
