@@ -3,6 +3,9 @@ import re
 import cv2
 import numpy as np
 import os
+import json
+from pathlib import Path
+from chess_base import ChessGameBase
 
 class GomokuGame:
     def __init__(self):
@@ -109,24 +112,34 @@ class GomokuGame:
         cv2.imwrite(path, img)
         return path
 
+    def to_dict(self):
+        return {
+            'board_size': self.board_size,
+            'board': self.board,
+            'current_player': self.current_player,
+            'game_over': self.game_over,
+            'winner': self.winner,
+            'last_move': self.last_move,
+        }
 
-class GomokuBot:
+    @classmethod
+    def from_dict(cls, data):
+        obj = cls()
+        obj.board_size = tuple(data.get('board_size', (15, 15)))
+        obj.board = data.get('board', [[0]*15 for _ in range(15)])
+        obj.current_player = data.get('current_player', 1)
+        obj.game_over = data.get('game_over', False)
+        obj.winner = data.get('winner', None)
+        obj.last_move = tuple(data.get('last_move')) if data.get('last_move') else None
+        return obj
+
+
+class GomokuBot(ChessGameBase):
     def __init__(self):
-        # 房间号 -> {game, players, 状态}
-        self.rooms = {}
-        # 用户id -> 当前所在房间号
-        self.user_room = {} # 这个表示用户当前在哪个房间活动。一个用户可以同时在多个room的players列表中，但至多只能在一个房间活动。
-        self.room_id_counter = 1000
-    
-    def new_room_id(self):
-        while True:
-            rid = str(self.room_id_counter)
-            self.room_id_counter += 1
-            if rid not in self.rooms:
-                return rid
+        super().__init__('gomoku', '6815cd855ebf6e703ce29395') # channel_id
     
     async def send_board_image(self, game, room_id, msg):
-        img_path = f"data/gomoku_{room_id}.png"
+        img_path = f"tmp/gomoku_{room_id}.png"
         game.draw_board(img_path)
         if hasattr(msg, 'reply_image'):
             await msg.reply_image(img_path)
@@ -150,7 +163,7 @@ class GomokuBot:
         elif text.startswith('加入'):
             room_id = text[2:].strip()
             if not room_id:
-                await msg.reply("加哪儿啊？发送“加入 房间号”，例如: 加入 1000")
+                await msg.reply("加哪儿啊？发送【加入 房间号】，例如: 加入 1000")
                 return
             if room_id not in self.rooms:
                 await msg.reply("扯王八犊子呢？没这房儿。")
@@ -240,3 +253,17 @@ class GomokuBot:
                 color = '黑棋' if game.current_player == 1 else '白棋'
                 await msg.reply(f"落子成功，轮到{next_player['name']}。")
                 await self.send_board_image(game, room_id, msg)
+
+    def room_to_dict(self, room):
+        return {
+            'game': room['game'].to_dict(),
+            'players': room['players'],
+            'status': room['status']
+        }
+
+    def dict_to_room(self, data):
+        return {
+            'game': GomokuGame.from_dict(data['game']),
+            'players': data['players'],
+            'status': data['status']
+        }

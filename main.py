@@ -6,21 +6,34 @@ from typing import Optional, Dict, Any
 import aiohttp
 import websockets
 import os
+import signal
+import importlib
+import pkgutil
+from data_manager import DataManager
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from message import Message
-# import bots
-from bots.gomoku import GomokuBot
-# 未来可以 from bots.chess import ChessBot 等
 
-# 初始化bot们
-gomoku_bot = GomokuBot()
-# chess_bot = ChessBot()  # 未来可拓展
+data_manager = DataManager()
+channel_bot_map = {}
 
-# 维护 channel_id 到 bot 的映射
-channel_bot_map = {
-    '6815cd855ebf6e703ce29395': gomoku_bot,
-    # 'chess': chess_bot,
-}
+def auto_register_bots():
+    bots_dir = os.path.join(os.path.dirname(__file__), 'bots')
+    for filename in os.listdir(bots_dir):
+        if filename.endswith('.py'):
+            modulename = filename[:-3]
+            classname = modulename[0].upper() + modulename[1:] + 'Bot'
+            module = __import__(f'bots.{modulename}', fromlist=[classname])
+            bot_cls = getattr(module, classname)
+            bot_instance = bot_cls()
+            data_manager.register_game(modulename, bot_instance)
+            channel_bot_map[bot_instance.channel_id] = bot_instance
+            logger.info(f'注册机器人: {classname} {bot_instance.channel_id}')
+
+def start_scheduler():
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(data_manager.save_all, 'interval', minutes=5)
+    scheduler.start()
 
 # 设置日志格式
 log_formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s')
@@ -39,6 +52,29 @@ logger.setLevel(logging.INFO)
 logger.addHandler(console_handler)
 logger.addHandler(file_handler)
 
+# 定时保存任务
+async def periodic_save():
+    while True:
+        try:
+            for bot in channel_bot_map.values():
+                bot.save_all_rooms()
+            logger.info('所有房间数据已定时保存')
+        except Exception as e:
+            logger.error(f'定时保存所有房间数据失败: {e}')
+        await asyncio.sleep(300)  # 5分钟
+
+# 程序退出时保存
+def on_exit(*args):
+    try:
+        for bot in channel_bot_map.values():
+            bot.save_all_rooms()
+        logger.info('程序退出，所有房间数据已保存')
+    except Exception as e:
+        logger.error(f'退出保存所有房间数据失败: {e}')
+    os._exit(0)
+
+signal.signal(signal.SIGTERM, on_exit)
+signal.signal(signal.SIGINT, on_exit)
 
 class RocketChatBot:
     def __init__(self, user: str, password: str, server_url: str):
@@ -224,6 +260,9 @@ class RocketChatBot:
                 await asyncio.sleep(5)  # 出错后等待重连
 
 def main():
+    auto_register_bots()
+    data_manager.load_all()
+    start_scheduler()
     # 使用容器内部地址进行测试
     bot = RocketChatBot(
         user='rocket.cat',

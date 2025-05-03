@@ -19,4 +19,5 @@ rocket.log
 .idea/ 
 
 # 临时文件
+tmp/
 data/
