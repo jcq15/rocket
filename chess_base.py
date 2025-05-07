@@ -31,8 +31,14 @@ class ChessGameBase:
             data = self.room_to_dict(room)
             with open(self.data_dir / f'{room_id}.json', 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
+        # 保存房间号
+        with open(self.data_dir / 'room_id.txt', 'w', encoding='utf-8') as f:
+            f.write(str(self.room_id_counter))
 
     def load_all_rooms(self):
+        # 读取房间号
+        with open(self.data_dir / 'room_id.txt', 'r', encoding='utf-8') as f:
+            self.room_id_counter = int(f.read())
         self.rooms = {}
         self.user_room = {}
         if not self.data_dir.exists():

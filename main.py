@@ -238,6 +238,12 @@ class RocketChatBot:
                         message = await websocket.recv()
                         data = json.loads(message)
                         logger.debug(f"Received message: {data}")
+
+                        # 处理心跳
+                        if data.get('msg') == 'ping':
+                            await websocket.send(json.dumps({'msg': 'pong'}))
+                            continue
+
                         if data.get('msg') == 'changed' and data.get('collection') == 'stream-room-messages':
                             asyncio.create_task(self.handle_message(data['fields']['args'][0]))
                     except websockets.ConnectionClosed:
