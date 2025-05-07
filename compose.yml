@@ -29,6 +29,9 @@ services:
       - ${PORT:-3000}
     ports:
       - "${BIND_IP:-0.0.0.0}:${HOST_PORT:-3000}:${PORT:-3000}"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
 
   mongodb:
     image: docker.io/bitnami/mongodb:${MONGODB_VERSION:-6.0}
@@ -44,3 +47,6 @@ services:
       MONGODB_ADVERTISED_HOSTNAME: ${MONGODB_ADVERTISED_HOSTNAME:-mongodb}
       MONGODB_ENABLE_JOURNAL: ${MONGODB_ENABLE_JOURNAL:-true}
       ALLOW_EMPTY_PASSWORD: ${ALLOW_EMPTY_PASSWORD:-yes}
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4

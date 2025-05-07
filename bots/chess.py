@@ -216,10 +216,11 @@ class ChessGame:
         img = Image.new('RGB', (board_pixel, board_pixel), (240, 217, 181))
         draw = ImageDraw.Draw(img)
         font = ImageFont.truetype('fonts/SourceHanSerif-VF.ttf.ttc', 32)
+        small_font = ImageFont.truetype('fonts/SourceHanSerif-VF.ttf.ttc', 18)
         # 画格子
         for i in range(8):
             for j in range(8):
-                color = (181, 136, 99) if (i + j) % 2 == 1 else (240, 217, 181)
+                color = (181, 136, 99) if (i + j) % 2 == 1 else (200, 177, 141)
                 x0 = margin + j * cell_size
                 y0 = margin + i * cell_size
                 x1 = x0 + cell_size
@@ -238,10 +239,9 @@ class ChessGame:
                         color = (0, 0, 0)
                     x = margin + j * cell_size + cell_size // 2
                     y = margin + i * cell_size + cell_size // 2
-                    if font:
-                        draw.text((x-16, y-20), text, fill=color, font=font)
-                    else:
-                        draw.text((x-16, y-20), text, fill=color)
+                    draw.text((x-16, y-20), text, fill=color, font=font)
+                    draw.text((x-16, y-20), text, fill=color, font=font) # 画两次，加粗
+
         # 标记最后一步
         if self.last_move:
             to_x, to_y = self.last_move['to']
@@ -252,11 +252,11 @@ class ChessGame:
         # 画坐标
         for i in range(8):
             # 上下
-            draw.text((margin + i * cell_size + 20, margin - 30), chr(ord('a') + i), fill=(0, 0, 0))
-            draw.text((margin + i * cell_size + 20, board_pixel - margin + 10), chr(ord('a') + i), fill=(0, 0, 0))
+            draw.text((margin + i * cell_size + 20, margin - 30), chr(ord('a') + i), fill=(0, 0, 0), font=small_font)
+            draw.text((margin + i * cell_size + 20, board_pixel - margin + 10), chr(ord('a') + i), fill=(0, 0, 0), font=small_font)
             # 左右
-            draw.text((margin - 30, margin + i * cell_size + 20), str(8 - i), fill=(0, 0, 0))
-            draw.text((board_pixel - margin + 10, margin + i * cell_size + 20), str(8 - i), fill=(0, 0, 0))
+            draw.text((margin - 30, margin + i * cell_size + 20), str(8 - i), fill=(0, 0, 0), font=small_font)
+            draw.text((board_pixel - margin + 10, margin + i * cell_size + 20), str(8 - i), fill=(0, 0, 0), font=small_font)
         if path is None:
             path = '/tmp/chess_board.png'
         img.save(path)
