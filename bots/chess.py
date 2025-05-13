@@ -275,93 +275,146 @@ class ChessGame:
             return True
         return False
 
+    def is_in_check(self, player):
+        # 判断player是否被将军
+        # 找到王的位置
+        king_pos = None
+        for i in range(8):
+            for j in range(8):
+                if self.get_piece(i, j) == player + 'K':
+                    king_pos = (i, j)
+                    break
+            if king_pos:
+                break
+        if not king_pos:
+            return True  # 王已被吃
+        # 检查对方所有走法是否能吃到王
+        opp = 'b' if player == 'w' else 'w'
+        for i in range(8):
+            for j in range(8):
+                piece = self.get_piece(i, j)
+                if piece and piece[0] == opp:
+                    moves = self._piece_moves(i, j, opp, piece[1])
+                    for m in moves:
+                        if m['to'] == king_pos:
+                            return True
+        return False
+
+    def _piece_moves(self, i, j, player, kind):
+        # 只生成(i,j)这个棋子的所有伪合法走法（不考虑送王）
+        moves = []
+        if kind == 'P':
+            direction = -1 if player == 'w' else 1
+            start_row = 6 if player == 'w' else 1
+            # 前进一步
+            x, y = i + direction, j
+            if self.in_board(x, y) and not self.get_piece(x, y):
+                # 升变
+                if x == 0 or x == 7:
+                    for promo in ['Q', 'R', 'B', 'N']:
+                        moves.append({'from': (i, j), 'to': (x, y), 'promotion': promo})
+                else:
+                    moves.append({'from': (i, j), 'to': (x, y)})
+                # 首次前进两步
+                if i == start_row:
+                    x2 = i + 2 * direction
+                    if self.in_board(x2, y) and not self.get_piece(x2, y):
+                        moves.append({'from': (i, j), 'to': (x2, y)})
+            # 吃子
+            for dy in [-1, 1]:
+                x, y2 = i + direction, j + dy
+                if self.in_board(x, y2):
+                    target = self.get_piece(x, y2)
+                    if target and target[0] != player:
+                        if x == 0 or x == 7:
+                            for promo in ['Q', 'R', 'B', 'N']:
+                                moves.append({'from': (i, j), 'to': (x, y2), 'promotion': promo})
+                        else:
+                            moves.append({'from': (i, j), 'to': (x, y2)})
+            # 吃过路兵
+            if self.en_passant:
+                ep_x, ep_y = self.en_passant
+                if abs(ep_y - j) == 1 and ep_x == i + direction:
+                    moves.append({'from': (i, j), 'to': (ep_x, ep_y)})
+        elif kind == 'N':  # 马
+            for dx, dy in [(-2, -1), (-2, 1), (-1, -2), (-1, 2), (1, -2), (1, 2), (2, -1), (2, 1)]:
+                x, y = i + dx, j + dy
+                if self.in_board(x, y):
+                    moves.append({'from': (i, j), 'to': (x, y)})
+        elif kind == 'B':  # 象
+            for dx, dy in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
+                for step in range(1, 8):
+                    x, y = i + dx * step, j + dy * step
+                    if not self.in_board(x, y):
+                        break
+                    moves.append({'from': (i, j), 'to': (x, y)})
+                    if self.get_piece(x, y):
+                        break
+        elif kind == 'R':  # 车
+            for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                for step in range(1, 8):
+                    x, y = i + dx * step, j + dy * step
+                    if not self.in_board(x, y):
+                        break
+                    moves.append({'from': (i, j), 'to': (x, y)})
+                    if self.get_piece(x, y):
+                        break
+        elif kind == 'Q':  # 后
+            for dx, dy in [(-1, -1), (-1, 1), (1, -1), (1, 1), (-1, 0), (1, 0), (0, -1), (0, 1)]:
+                for step in range(1, 8):
+                    x, y = i + dx * step, j + dy * step
+                    if not self.in_board(x, y):
+                        break
+                    moves.append({'from': (i, j), 'to': (x, y)})
+                    if self.get_piece(x, y):
+                        break
+        elif kind == 'K':  # 王
+            for dx in [-1, 0, 1]:
+                for dy in [-1, 0, 1]:
+                    if dx == 0 and dy == 0:
+                        continue
+                    x, y = i + dx, j + dy
+                    if self.in_board(x, y):
+                        moves.append({'from': (i, j), 'to': (x, y)})
+            # 王车易位
+            if self.castling_rights[player+'K']:
+                if all(self.get_piece(i, y) is None for y in range(j+1, 7)):
+                    moves.append({'from': (i, j), 'to': (i, j+2)})
+            if self.castling_rights[player+'Q']:
+                if all(self.get_piece(i, y) is None for y in range(1, j)):
+                    moves.append({'from': (i, j), 'to': (i, j-2)})
+        return moves
+
+    def _would_be_in_check(self, player, move):
+        # 判断执行move后player是否被将军
+        import copy
+        tmp = copy.deepcopy(self)
+        fx, fy = move['from']
+        tx, ty = move['to']
+        piece = tmp.get_piece(fx, fy)
+        tmp.board[tx][ty] = piece
+        tmp.board[fx][fy] = None
+        if 'promotion' in move:
+            tmp.board[tx][ty] = player + move['promotion']
+        return tmp.is_in_check(player)
+
     def generate_legal_moves(self, player):
+        # 生成所有合法走法
         all_moves = []
         for i in range(8):
             for j in range(8):
                 piece = self.get_piece(i, j)
                 if piece and piece[0] == player:
                     kind = piece[1]
-                    if kind == 'P':  # 兵
-                        direction = -1 if player == 'w' else 1
-                        start_row = 6 if player == 'w' else 1
-                        # 前进一步
-                        x, y = i + direction, j
-                        if self.in_board(x, y) and not self.get_piece(x, y):
-                            # 升变
-                            if x == 0 or x == 7:
-                                for promo in ['Q', 'R', 'B', 'N']:
-                                    all_moves.append({'from': (i, j), 'to': (x, y), 'promotion': promo})
-                            else:
-                                all_moves.append({'from': (i, j), 'to': (x, y)})
-                            # 首次前进两步
-                            if i == start_row:
-                                x2 = i + 2 * direction
-                                if self.in_board(x2, y) and not self.get_piece(x2, y):
-                                    all_moves.append({'from': (i, j), 'to': (x2, y)})
-                        # 吃子
-                        for dy in [-1, 1]:
-                            x, y2 = i + direction, j + dy
-                            if self.in_board(x, y2):
-                                target = self.get_piece(x, y2)
-                                if target and target[0] != player:
-                                    if x == 0 or x == 7:
-                                        for promo in ['Q', 'R', 'B', 'N']:
-                                            all_moves.append({'from': (i, j), 'to': (x, y2), 'promotion': promo})
-                                    else:
-                                        all_moves.append({'from': (i, j), 'to': (x, y2)})
-                        # 吃过路兵
-                        if self.en_passant:
-                            ep_x, ep_y = self.en_passant
-                            if abs(ep_y - j) == 1 and ep_x == i + direction:
-                                all_moves.append({'from': (i, j), 'to': (ep_x, ep_y)})
-                    elif kind == 'N':  # 马
-                        for dx, dy in [(-2, -1), (-2, 1), (-1, -2), (-1, 2), (1, -2), (1, 2), (2, -1), (2, 1)]:
-                            x, y = i + dx, j + dy
-                            if self.in_board(x, y):
-                                all_moves.append({'from': (i, j), 'to': (x, y)})
-                    elif kind == 'B':  # 象
-                        for dx, dy in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
-                            for step in range(1, 8):
-                                x, y = i + dx * step, j + dy * step
-                                if not self.in_board(x, y):
-                                    break
-                                all_moves.append({'from': (i, j), 'to': (x, y)})
-                                if self.get_piece(x, y):
-                                    break
-                    elif kind == 'R':  # 车
-                        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                            for step in range(1, 8):
-                                x, y = i + dx * step, j + dy * step
-                                if not self.in_board(x, y):
-                                    break
-                                all_moves.append({'from': (i, j), 'to': (x, y)})
-                                if self.get_piece(x, y):
-                                    break
-                    elif kind == 'Q':  # 后
-                        for dx, dy in [(-1, -1), (-1, 1), (1, -1), (1, 1), (-1, 0), (1, 0), (0, -1), (0, 1)]:
-                            for step in range(1, 8):
-                                x, y = i + dx * step, j + dy * step
-                                if not self.in_board(x, y):
-                                    break
-                                all_moves.append({'from': (i, j), 'to': (x, y)})
-                                if self.get_piece(x, y):
-                                    break
-                    elif kind == 'K':  # 王
-                        for dx in [-1, 0, 1]:
-                            for dy in [-1, 0, 1]:
-                                if dx == 0 and dy == 0:
-                                    continue
-                                x, y = i + dx, j + dy
-                                if self.in_board(x, y):
-                                    all_moves.append({'from': (i, j), 'to': (x, y)})
-                        # 王车易位
-                        if self.castling_rights[player+'K']:
-                            if all(self.get_piece(i, y) is None for y in range(j+1, 7)):
-                                all_moves.append({'from': (i, j), 'to': (i, j+2)})
-                        if self.castling_rights[player+'Q']:
-                            if all(self.get_piece(i, y) is None for y in range(1, j)):
-                                all_moves.append({'from': (i, j), 'to': (i, j-2)})
+                    pseudo_moves = self._piece_moves(i, j, player, kind)
+                    if self.must_capture:
+                        # 有吃必吃模式下，后续过滤吃子
+                        all_moves.extend(pseudo_moves)
+                    else:
+                        # 普通模式下，过滤送王
+                        for move in pseudo_moves:
+                            if not self._would_be_in_check(player, move):
+                                all_moves.append(move)
         if self.must_capture:
             capture_moves = [m for m in all_moves if self.is_capture_move(m, player)]
             if capture_moves:
@@ -396,6 +449,7 @@ class ChessBot(ChessGameBase):
                 'game': ChessGame(must_capture=must_capture),
                 'players': [{'id': user_id, 'name': msg.talker_name}],
                 'status': 'waiting',
+                'draw_offer': None
             }
             self.user_room[user_id] = room_id
             if must_capture:
@@ -433,6 +487,42 @@ class ChessBot(ChessGameBase):
                 await self.send_board_image(room['game'], room_id, msg)
             else:
                 await msg.reply(f"加入房间{room_id}成功，等待对手加入！")
+        # 求和
+        elif text == '求和':
+            if user_id not in self.user_room:
+                await msg.reply("你当前不在任何房间。"); return
+            room_id = self.user_room[user_id]
+            room = self.rooms.get(room_id)
+            if not room or room['status'] != 'playing':
+                await msg.reply("房间未开始游戏。"); return
+            idx = [p['id'] for p in room['players']].index(user_id)
+            player = 'w' if idx == 0 else 'b'
+            if room['game'].current_player != player:
+                await msg.reply("还没轮到你下棋。"); return
+            if room.get('draw_offer'):
+                await msg.reply("你已经提出过和棋申请，等待对方回应。"); return
+            room['draw_offer'] = player
+            other = room['players'][1-idx]['name']
+            await msg.reply(f"你已向{other}提出和棋申请，对方可发送【同意】同意和棋，或直接走棋拒绝。")
+            return
+        # 同意
+        elif text == '同意':
+            if user_id not in self.user_room:
+                await msg.reply("你当前不在任何房间。"); return
+            room_id = self.user_room[user_id]
+            room = self.rooms.get(room_id)
+            if not room or room['status'] != 'playing':
+                await msg.reply("房间未开始游戏。"); return
+            idx = [p['id'] for p in room['players']].index(user_id)
+            player = 'w' if idx == 0 else 'b'
+            if not room.get('draw_offer') or room['draw_offer'] == player:
+                await msg.reply("当前没有对方提出的和棋申请。"); return
+            room['status'] = 'finished'
+            room['game'].game_over = True
+            room['game'].winner = None
+            await msg.reply("双方同意和棋，游戏结束。")
+            self.archive_game(room, room_id)
+            return
         # 落子
         elif re.match(r'^[a-h][1-8][a-h][1-8][qrbn]?$', text.replace(' ', '').lower()):
             if user_id not in self.user_room:
@@ -451,13 +541,36 @@ class ChessBot(ChessGameBase):
             if not move:
                 await msg.reply("落子格式错误，应为: a2a4 或 a7a8Q")
                 return
+            # 走棋前清除和棋申请
+            room['draw_offer'] = None
+            legal_moves = game.generate_legal_moves(player)
+            if not legal_moves:
+                # 无合法走法
+                if game.is_in_check(player):
+                    # 被将军，判负
+                    winner = '黑方' if player == 'w' else '白方'
+                    await msg.reply(f"{winner}胜利！对方被将死，游戏结束。")
+                    await self.send_board_image(game, room_id, msg)
+                    room['status'] = 'finished'
+                    game.game_over = True
+                    game.winner = 'b' if player == 'w' else 'w'
+                    self.archive_game(room, room_id)
+                else:
+                    # 未被将军，和棋
+                    await msg.reply("无合法走法，判和，游戏结束。")
+                    await self.send_board_image(game, room_id, msg)
+                    room['status'] = 'finished'
+                    game.game_over = True
+                    game.winner = None
+                    self.archive_game(room, room_id)
+                return
             response = game.move(move)
             if not response['success']:
                 await msg.reply(response['msg'])
                 return
             if game.game_over:
-                winner = '白方' if game.winner == 'w' else '黑方'
-                await msg.reply(f"{winner}胜利！游戏结束。")
+                winner = '白方' if game.winner == 'w' else '黑方' if game.winner else '和棋'
+                await msg.reply(f"{winner}胜利！游戏结束。" if game.winner else "和棋，游戏结束。")
                 await self.send_board_image(game, room_id, msg)
                 room['status'] = 'finished'
                 self.archive_game(room, room_id)
@@ -475,23 +588,31 @@ class ChessBot(ChessGameBase):
             if not room:
                 await msg.reply("房间不存在。"); return
             await self.send_board_image(room['game'], room_id, msg)
+        elif text.lower() in ['说明', 'help', '帮助']:
+            await msg.reply("【开房】\n【开房 吃】有吃必吃\n【加入 xxxx】加入某个房间\n【棋盘】查看当前棋盘\n【求和】向对方提出和棋申请\n【同意】同意和棋\n走棋用起点终点坐标，例如a2a4\n升变：a7a8Q\n王车易位：直接指定王的起点终点坐标")
         else:
             pass
             # await msg.reply("指令无效。支持：\n开房\n加入 房间号\n[a2 a4]走法\n棋盘 查看棋盘")
 
     def room_to_dict(self, room):
-        return {
+        # 兼容新老格式，序列化draw_offer
+        d = {
             'game': room['game'].to_dict(),
             'players': room['players'],
             'status': room['status'],
+            'draw_offer': room.get('draw_offer', None)
         }
+        return d
 
     def dict_to_room(self, data):
-        return {
+        # 兼容新老格式，反序列化draw_offer
+        room = {
             'game': ChessGame.from_dict(data['game']),
             'players': data['players'],
             'status': data['status'],
+            'draw_offer': data.get('draw_offer', None)
         }
+        return room
 
 def parse_move_from_text(text, game):
     # 支持 a7a8Q, a7a8, a7 a8 Q, a7 a8q, a7a8q 等格式
