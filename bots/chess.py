@@ -340,15 +340,22 @@ class ChessGame:
             for dx, dy in [(-2, -1), (-2, 1), (-1, -2), (-1, 2), (1, -2), (1, 2), (2, -1), (2, 1)]:
                 x, y = i + dx, j + dy
                 if self.in_board(x, y):
-                    moves.append({'from': (i, j), 'to': (x, y)})
+                    target = self.get_piece(x, y)
+                    if not target or target[0] != player:
+                        moves.append({'from': (i, j), 'to': (x, y)})
         elif kind == 'B':  # 象
             for dx, dy in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
                 for step in range(1, 8):
                     x, y = i + dx * step, j + dy * step
                     if not self.in_board(x, y):
                         break
-                    moves.append({'from': (i, j), 'to': (x, y)})
-                    if self.get_piece(x, y):
+                    target = self.get_piece(x, y)
+                    if not target:
+                        moves.append({'from': (i, j), 'to': (x, y)})
+                    elif target[0] != player:
+                        moves.append({'from': (i, j), 'to': (x, y)})
+                        break
+                    else:
                         break
         elif kind == 'R':  # 车
             for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
@@ -356,8 +363,13 @@ class ChessGame:
                     x, y = i + dx * step, j + dy * step
                     if not self.in_board(x, y):
                         break
-                    moves.append({'from': (i, j), 'to': (x, y)})
-                    if self.get_piece(x, y):
+                    target = self.get_piece(x, y)
+                    if not target:
+                        moves.append({'from': (i, j), 'to': (x, y)})
+                    elif target[0] != player:
+                        moves.append({'from': (i, j), 'to': (x, y)})
+                        break
+                    else:
                         break
         elif kind == 'Q':  # 后
             for dx, dy in [(-1, -1), (-1, 1), (1, -1), (1, 1), (-1, 0), (1, 0), (0, -1), (0, 1)]:
@@ -365,8 +377,13 @@ class ChessGame:
                     x, y = i + dx * step, j + dy * step
                     if not self.in_board(x, y):
                         break
-                    moves.append({'from': (i, j), 'to': (x, y)})
-                    if self.get_piece(x, y):
+                    target = self.get_piece(x, y)
+                    if not target:
+                        moves.append({'from': (i, j), 'to': (x, y)})
+                    elif target[0] != player:
+                        moves.append({'from': (i, j), 'to': (x, y)})
+                        break
+                    else:
                         break
         elif kind == 'K':  # 王
             for dx in [-1, 0, 1]:
@@ -375,7 +392,9 @@ class ChessGame:
                         continue
                     x, y = i + dx, j + dy
                     if self.in_board(x, y):
-                        moves.append({'from': (i, j), 'to': (x, y)})
+                        target = self.get_piece(x, y)
+                        if not target or target[0] != player:
+                            moves.append({'from': (i, j), 'to': (x, y)})
             # 王车易位
             if self.castling_rights[player+'K']:
                 if all(self.get_piece(i, y) is None for y in range(j+1, 7)):
@@ -502,9 +521,7 @@ class ChessBot(ChessGameBase):
             if room.get('draw_offer'):
                 await msg.reply("你已经提出过和棋申请，等待对方回应。"); return
             room['draw_offer'] = player
-            other = room['players'][1-idx]['name']
-            await msg.reply(f"你已向{other}提出和棋申请，对方可发送【同意】同意和棋，或直接走棋拒绝。")
-            return
+            await msg.reply(f"你已向对方提出和棋申请，请对方回复【同意】或【拒绝】。"); return
         # 同意
         elif text == '同意':
             if user_id not in self.user_room:
@@ -523,6 +540,20 @@ class ChessBot(ChessGameBase):
             await msg.reply("双方同意和棋，游戏结束。")
             self.archive_game(room, room_id)
             return
+        # 拒绝
+        elif text == '拒绝':
+            if user_id not in self.user_room:
+                await msg.reply("你当前不在任何房间。"); return
+            room_id = self.user_room[user_id]
+            room = self.rooms.get(room_id)
+            if not room or room['status'] != 'playing':
+                await msg.reply("房间未开始游戏。"); return
+            idx = [p['id'] for p in room['players']].index(user_id)
+            player = 'w' if idx == 0 else 'b'
+            if not room.get('draw_offer') or room['draw_offer'] == player:
+                await msg.reply("当前没有对方提出的和棋申请。"); return
+            room['draw_offer'] = None
+            await msg.reply("你已拒绝和棋申请，继续游戏。"); return
         # 落子
         elif re.match(r'^[a-h][1-8][a-h][1-8][qrbn]?$', text.replace(' ', '').lower()):
             if user_id not in self.user_room:
@@ -532,6 +563,9 @@ class ChessBot(ChessGameBase):
             room = self.rooms.get(room_id)
             if not room or room['status'] != 'playing':
                 await msg.reply("房间未开始游戏。"); return
+            # 如果有和棋申请，且不是自己提出的，不能走棋
+            if room.get('draw_offer') and [p['id'] for p in room['players']].index(user_id) != (0 if room['draw_offer']=='w' else 1):
+                await msg.reply("对方提出了和棋申请，请先回复【同意】或【拒绝】。"); return
             game = room['game']
             idx = [p['id'] for p in room['players']].index(user_id)
             player = 'w' if idx == 0 else 'b'
@@ -589,7 +623,7 @@ class ChessBot(ChessGameBase):
                 await msg.reply("房间不存在。"); return
             await self.send_board_image(room['game'], room_id, msg)
         elif text.lower() in ['说明', 'help', '帮助']:
-            await msg.reply("【开房】\n【开房 吃】有吃必吃\n【加入 xxxx】加入某个房间\n【棋盘】查看当前棋盘\n【求和】向对方提出和棋申请\n【同意】同意和棋\n走棋用起点终点坐标，例如a2a4\n升变：a7a8Q\n王车易位：直接指定王的起点终点坐标")
+            await msg.reply("【开房】\n【开房 吃】有吃必吃\n【加入 xxxx】加入某个房间\n【棋盘】查看当前棋盘\n【求和】向对方提出和棋申请\n【同意/拒绝】同意/拒绝和棋\n走棋用起点终点坐标，例如a2a4\n升变：a7a8Q\n王车易位：直接指定王的起点终点坐标")
         else:
             pass
             # await msg.reply("指令无效。支持：\n开房\n加入 房间号\n[a2 a4]走法\n棋盘 查看棋盘")
