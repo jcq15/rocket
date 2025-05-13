@@ -1,5 +1,6 @@
 import os
 import datetime
+from logger import logger
 
 class DataManager:
     def __init__(self):
@@ -11,10 +12,12 @@ class DataManager:
     def save_all(self):
         for game in self.games.values():
             game.save_all_rooms()
+        logger.info('已保存所有房间')
 
     def load_all(self):
         for game in self.games.values():
             game.load_all_rooms()
+        logger.info('已加载所有房间')
 
     def backup_all(self):
         today = datetime.datetime.now().strftime('%Y-%m-%d')

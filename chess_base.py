@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import time
 
 class ChessGameBase:
     def __init__(self, game_type, channel_id):
@@ -64,4 +65,16 @@ class ChessGameBase:
 
     async def message_handler(self, msg):
         """每个子类都应实现自己的消息处理逻辑"""
-        raise NotImplementedError('请在子类中实现message_handler') 
+        raise NotImplementedError('请在子类中实现message_handler')
+
+    def archive_game(self, room, room_id=None):
+        """将对局归档到archive/xxx/目录，文件名为时间戳_房间号.json"""
+        archive_dir = Path(f'archive/{self.game_type}')
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        ts = int(time.time())
+        if room_id is None:
+            room_id = 'unknown'
+        data = self.room_to_dict(room)
+        file_path = archive_dir / f'{ts}_{room_id}.json'
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2) 

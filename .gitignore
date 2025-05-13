@@ -20,4 +20,7 @@ rocket.log
 
 # 临时文件
 tmp/
+
+# 数据文件
 data/
+archive/

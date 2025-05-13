@@ -247,6 +247,7 @@ class GomokuBot(ChessGameBase):
                 winner = '黑棋' if response['winner'] == 1 else '白棋'
                 response = f"{winner}胜利！游戏结束。"
                 room['status'] = 'finished'
+                self.archive_game(room, room_id)
                 await msg.reply(response)
             else:
                 next_player = room['players'][game.current_player-1]

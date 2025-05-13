@@ -460,6 +460,7 @@ class ChessBot(ChessGameBase):
                 await msg.reply(f"{winner}胜利！游戏结束。")
                 await self.send_board_image(game, room_id, msg)
                 room['status'] = 'finished'
+                self.archive_game(room, room_id)
             else:
                 next_player = room['players'][0 if game.current_player == 'w' else 1]
                 color = '白方' if game.current_player == 'w' else '黑方'

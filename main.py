@@ -11,6 +11,7 @@ import importlib
 import pkgutil
 from data_manager import DataManager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from logger import logger
 
 from message import Message
 
@@ -34,34 +35,6 @@ def start_scheduler():
     scheduler = AsyncIOScheduler()
     scheduler.add_job(data_manager.save_all, 'interval', minutes=5)
     scheduler.start()
-
-# 设置日志格式
-log_formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s')
-
-# 控制台处理器
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(log_formatter)
-
-# 文件处理器
-file_handler = logging.FileHandler('rocket.log', encoding='utf-8')
-file_handler.setFormatter(log_formatter)
-
-# 获取 logger
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-logger.addHandler(console_handler)
-logger.addHandler(file_handler)
-
-# 定时保存任务
-async def periodic_save():
-    while True:
-        try:
-            for bot in channel_bot_map.values():
-                bot.save_all_rooms()
-            logger.info('所有房间数据已定时保存')
-        except Exception as e:
-            logger.error(f'定时保存所有房间数据失败: {e}')
-        await asyncio.sleep(300)  # 5分钟
 
 # 程序退出时保存
 def on_exit(*args):
