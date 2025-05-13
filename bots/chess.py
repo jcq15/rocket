@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 from chess_base import ChessGameBase
+import hashlib
 
 # 棋子中文名
 PIECE_NAMES = {
@@ -49,12 +50,21 @@ class ChessGame:
         }
         self.en_passant = None  # (x, y) 可吃过路兵目标格
         self.must_capture = must_capture
+        self.position_history = []
 
     def in_board(self, x, y):
         return 0 <= x < 8 and 0 <= y < 8
 
     def get_piece(self, x, y):
         return self.board[x][y]
+
+    def get_position_hash(self):
+        # 只考虑棋盘、当前方、易位权、过路兵
+        board_str = json.dumps(self.board, sort_keys=True)
+        cr_str = json.dumps(self.castling_rights, sort_keys=True)
+        ep_str = str(self.en_passant)
+        s = f'{board_str}|{self.current_player}|{cr_str}|{ep_str}'
+        return hashlib.md5(s.encode()).hexdigest()
 
     def move(self, move):
         # 兼容外部传入list格式
@@ -125,14 +135,38 @@ class ChessGame:
                 self.game_over = True
                 self.winner = 'b'
         else:
-            if self.is_checkmate('b' if player == 'w' else 'w'):
-                self.game_over = True
-                self.winner = player
-            else:
-                self.current_player = 'b' if player == 'w' else 'w'
+            # 走完后判断对方是否被将死或无子可动
+            next_player = 'b' if player == 'w' else 'w'
+            legal_moves = self.generate_legal_moves(next_player)
+            # 可选缓存下一步合法走法
+            # self.next_legal_moves = legal_moves
+            if not legal_moves:
+                if self.is_in_check(next_player):
+                    self.game_over = True
+                    self.winner = player
+                else:
+                    self.game_over = True
+                    self.winner = None  # 和棋
         if not self.game_over:
             self.current_player = 'b' if player == 'w' else 'w'
-        return {'success': True, 'msg': ''}
+        # 走棋后记录局面哈希
+        pos_hash = self.get_position_hash()
+        self.position_history.append(pos_hash)
+        repeat_count = self.position_history.count(pos_hash)
+        repeat_draw = False
+        if repeat_count >= 3:
+            self.game_over = True
+            self.winner = None
+            repeat_draw = True
+        return {
+            'success': True,
+            'msg': '',
+            'repeat_count': repeat_count,
+            'repeat_draw': repeat_draw,
+            'game_over': self.game_over,
+            'winner': self.winner,
+            'is_draw': self.game_over and self.winner is None
+        }
 
     def is_legal_move(self, move):
         return any(self._move_eq(move, m) for m in self.generate_legal_moves(self.current_player))
@@ -175,6 +209,7 @@ class ChessGame:
             'castling_rights': self.castling_rights,
             'en_passant': self.en_passant,
             'must_capture': self.must_capture,
+            'position_history': self.position_history,
         }
 
     @classmethod
@@ -207,6 +242,7 @@ class ChessGame:
                 obj.move_history.append({'from': tuple(int(x) for x in m[0]), 'to': tuple(int(x) for x in m[1])})
         obj.castling_rights = data.get('castling_rights', {'wK': True, 'wQ': True, 'bK': True, 'bQ': True})
         obj.en_passant = tuple(data.get('en_passant')) if data.get('en_passant') else None
+        obj.position_history = data.get('position_history', [])
         return obj
 
     def draw_board(self, path=None):
@@ -577,30 +613,17 @@ class ChessBot(ChessGameBase):
                 return
             # 走棋前清除和棋申请
             room['draw_offer'] = None
-            legal_moves = game.generate_legal_moves(player)
-            if not legal_moves:
-                # 无合法走法
-                if game.is_in_check(player):
-                    # 被将军，判负
-                    winner = '黑方' if player == 'w' else '白方'
-                    await msg.reply(f"{winner}胜利！对方被将死，游戏结束。")
-                    await self.send_board_image(game, room_id, msg)
-                    room['status'] = 'finished'
-                    game.game_over = True
-                    game.winner = 'b' if player == 'w' else 'w'
-                    self.archive_game(room, room_id)
-                else:
-                    # 未被将军，和棋
-                    await msg.reply("无合法走法，判和，游戏结束。")
-                    await self.send_board_image(game, room_id, msg)
-                    room['status'] = 'finished'
-                    game.game_over = True
-                    game.winner = None
-                    self.archive_game(room, room_id)
-                return
             response = game.move(move)
             if not response['success']:
                 await msg.reply(response['msg'])
+                return
+            if response.get('repeat_count') == 2:
+                await msg.reply("警告：当前局面已出现两次，再次出现将自动判和！")
+            if response.get('repeat_draw'):
+                await msg.reply("三次重复局面，自动判和，游戏结束。")
+                await self.send_board_image(game, room_id, msg)
+                room['status'] = 'finished'
+                self.archive_game(room, room_id)
                 return
             if game.game_over:
                 winner = '白方' if game.winner == 'w' else '黑方' if game.winner else '和棋'
