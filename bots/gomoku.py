@@ -33,6 +33,10 @@ class GomokuGame:
             self.game_over = True
             self.winner = player
             return {'success': True, 'winner': player, 'msg': ''}
+        elif self.is_full():
+            self.game_over = True
+            self.winner = 0
+            return {'success': True, 'winner': 0, 'msg': '和棋，棋盘已满。'}
         else:
             self.current_player = 2 if player == 1 else 1
             return {'success': True, 'winner': 0, 'msg': ''}
@@ -57,17 +61,25 @@ class GomokuGame:
                 return True
         return False
     
+    def is_full(self):
+        for row in self.board:
+            if 0 in row:
+                return False
+        return True
+
     def get_board_str(self):
-        # 两边加上坐标
-        board_str = '   ' + ' '.join([str(i) for i in range(self.board_size[0])]) + '\n'
-        for i in range(self.board_size[1]):
-            board_str += str(i) + ' ' + ' '.join([str(cell) for cell in self.board[i]]) + '\n'
+        # 横坐标1~15，纵坐标A~O
+        numbers = [str(i+1) for i in range(self.board_size[1])]
+        letters = [chr(ord('A') + i) for i in range(self.board_size[0])]
+        board_str = '   ' + ' '.join(numbers) + '\n'
+        for i in range(self.board_size[0]):
+            board_str += f'{letters[i]:2s} ' + ' '.join([str(cell) for cell in self.board[i]]) + '\n'
         return board_str
 
     def draw_board(self, path=None):
         cell_size = 40
         margin = 40
-        board_pixel = cell_size * (self.board_size[0] - 1) + margin * 2
+        board_pixel = cell_size * (self.board_size[1] - 1) + margin * 2
         img = np.ones((board_pixel, board_pixel, 3), dtype=np.uint8) * 240
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 0.6
@@ -76,10 +88,12 @@ class GomokuGame:
         for i in range(self.board_size[0]):
             color = (0, 0, 0) if i % 2 == 0 else (180, 180, 180)
             pt1 = (margin, margin + i * cell_size)
-            pt2 = (margin + cell_size * (self.board_size[0] - 1), margin + i * cell_size)
+            pt2 = (margin + cell_size * (self.board_size[1] - 1), margin + i * cell_size)
             cv2.line(img, pt1, pt2, color, 1)
-            pt1 = (margin + i * cell_size, margin)
-            pt2 = (margin + i * cell_size, margin + cell_size * (self.board_size[1] - 1))
+        for j in range(self.board_size[1]):
+            color = (0, 0, 0) if j % 2 == 0 else (180, 180, 180)
+            pt1 = (margin + j * cell_size, margin)
+            pt2 = (margin + j * cell_size, margin + cell_size * (self.board_size[0] - 1))
             cv2.line(img, pt1, pt2, color, 1)
         # 画棋子
         for i in range(self.board_size[0]):
@@ -97,15 +111,18 @@ class GomokuGame:
             center = (margin + y * cell_size, margin + x * cell_size)
             cv2.circle(img, center, cell_size // 4, (0, 0, 255), 2)
         # 四周加坐标
-        for i in range(self.board_size[0]):
+        numbers = [str(i+1) for i in range(self.board_size[1])]
+        letters = [chr(ord('A') + i) for i in range(self.board_size[0])]
+        for j in range(self.board_size[1]):
             # 上
-            cv2.putText(img, str(i), (margin + i * cell_size - 8, margin - 10), font, font_scale, (0, 0, 200), thickness, cv2.LINE_AA)
+            cv2.putText(img, numbers[j], (margin + j * cell_size - 8, margin - 10), font, font_scale, (0, 0, 200), thickness, cv2.LINE_AA)
             # 下
-            cv2.putText(img, str(i), (margin + i * cell_size - 8, board_pixel - margin + 25), font, font_scale, (0, 0, 200), thickness, cv2.LINE_AA)
+            cv2.putText(img, numbers[j], (margin + j * cell_size - 8, board_pixel - margin + 25), font, font_scale, (0, 0, 200), thickness, cv2.LINE_AA)
+        for i in range(self.board_size[0]):
             # 左
-            cv2.putText(img, str(i), (margin - 30, margin + i * cell_size + 8), font, font_scale, (0, 0, 200), thickness, cv2.LINE_AA)
+            cv2.putText(img, letters[i], (margin - 30, margin + i * cell_size + 8), font, font_scale, (0, 0, 200), thickness, cv2.LINE_AA)
             # 右
-            cv2.putText(img, str(i), (board_pixel - margin + 10, margin + i * cell_size + 8), font, font_scale, (0, 0, 200), thickness, cv2.LINE_AA)
+            cv2.putText(img, letters[i], (board_pixel - margin + 10, margin + i * cell_size + 8), font, font_scale, (0, 0, 200), thickness, cv2.LINE_AA)
         # 保存图片
         if path is None:
             path = '/tmp/gomoku_board.png'
@@ -217,7 +234,7 @@ class GomokuBot(ChessGameBase):
             """
 
         # 落子
-        elif re.match(r'^\d+\s+\d+$', text.strip()):
+        elif re.match(r'^[A-Oa-o](1[0-5]|[1-9])$', text.strip()):
             # 应该是落子
             if user_id not in self.user_room:
                 await msg.reply("你当前不在任何房间，请先'开房'或'加入 房间号'。")
@@ -234,26 +251,34 @@ class GomokuBot(ChessGameBase):
                 await msg.reply("还没轮到你下棋。")
                 return
             try:
-                x, y = map(int, text.split())
+                row = text[0].upper()
+                col = int(text[1:])
+                x = ord(row) - ord('A')
+                y = col - 1
             except Exception:
-                await msg.reply("落子格式错误，应为: x y")
+                await msg.reply("落子格式错误，应为: A1 ~ O15")
                 return
             response = game.move(player, x, y)
             if not response['success']:
                 await msg.reply(response['msg'])
                 return
             # 落子成功
-            if response['winner'] != 0:
+            await self.send_board_image(game, room_id, msg)
+            if response['winner'] == 1 or response['winner'] == 2:
                 winner = '黑棋' if response['winner'] == 1 else '白棋'
-                response = f"{winner}胜利！游戏结束。"
+                response_msg = f"{winner}胜利！游戏结束。"
                 room['status'] = 'finished'
                 self.archive_game(room, room_id)
-                await msg.reply(response)
+                await msg.reply(response_msg)
+            elif response['winner'] == 0 and game.game_over:
+                response_msg = "和棋，棋盘已满，游戏结束。"
+                room['status'] = 'finished'
+                self.archive_game(room, room_id)
+                await msg.reply(response_msg)
             else:
                 next_player = room['players'][game.current_player-1]
                 color = '黑棋' if game.current_player == 1 else '白棋'
                 await msg.reply(f"落子成功，轮到{next_player['name']}。")
-                await self.send_board_image(game, room_id, msg)
 
     def room_to_dict(self, room):
         return {
