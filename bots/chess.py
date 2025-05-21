@@ -40,14 +40,23 @@ class ChessGame:
         self.last_move = None  # move dict
         self.move_history = []
         # 王侧/后侧易位权，考虑自定义初始局面可能没车/王车不在原位的情况
+        # 有吃必吃没有王车易位
         # 白王e1(7,4)，白车a1(7,0)、h1(7,7)
         # 黑王e8(0,4)，黑车a8(0,0)、h8(0,7)
-        self.castling_rights = {
-            'wK': self.get_piece(7, 4) == 'wK' and self.get_piece(7, 7) == 'wR',
-            'wQ': self.get_piece(7, 4) == 'wK' and self.get_piece(7, 0) == 'wR',
-            'bK': self.get_piece(0, 4) == 'bK' and self.get_piece(0, 7) == 'bR',
-            'bQ': self.get_piece(0, 4) == 'bK' and self.get_piece(0, 0) == 'bR',
-        }
+        if must_capture:
+            self.castling_rights = {
+                'wK': False,
+                'wQ': False,
+                'bK': False,
+                'bQ': False,
+            }
+        else:
+            self.castling_rights = {
+                'wK': self.get_piece(7, 4) == 'wK' and self.get_piece(7, 7) == 'wR',
+                'wQ': self.get_piece(7, 4) == 'wK' and self.get_piece(7, 0) == 'wR',
+                'bK': self.get_piece(0, 4) == 'bK' and self.get_piece(0, 7) == 'bR',
+                'bQ': self.get_piece(0, 4) == 'bK' and self.get_piece(0, 0) == 'bR',
+            }
         self.en_passant = None  # (x, y) 可吃过路兵目标格
         self.must_capture = must_capture
         self.position_history = []
@@ -125,6 +134,7 @@ class ChessGame:
         else:
             self.en_passant = None
         # 有吃必吃模式下，谁先无子谁赢
+        legal_moves = self.generate_legal_moves(next_player)
         if self.must_capture:
             w_count = sum(1 for x in range(8) for y in range(8) if self.get_piece(x, y) and self.get_piece(x, y)[0] == 'w')
             b_count = sum(1 for x in range(8) for y in range(8) if self.get_piece(x, y) and self.get_piece(x, y)[0] == 'b')
@@ -134,10 +144,13 @@ class ChessGame:
             elif b_count == 0:
                 self.game_over = True
                 self.winner = 'b'
+            elif not legal_moves:
+                # 无子可动的人赢
+                self.game_over = True
+                self.winner = next_player
         else:
             # 走完后判断对方是否被将死或无子可动
             next_player = 'b' if player == 'w' else 'w'
-            legal_moves = self.generate_legal_moves(next_player)
             # 可选缓存下一步合法走法
             # self.next_legal_moves = legal_moves
             if not legal_moves:
