@@ -5,16 +5,20 @@ import numpy as np
 import os
 import json
 from pathlib import Path
+if __name__ == "__main__":
+    import sys
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from chess_base import ChessGameBase
 
 class GomokuGame:
-    def __init__(self):
+    def __init__(self, forbidden_rule=False):
         self.board_size = (15, 15)
         self.board = [[0] * self.board_size[0] for _ in range(self.board_size[1])] # 0: 空, 1: 黑棋, 2: 白棋
         self.current_player = 1 # 1: 黑棋, 2: 白棋
         self.game_over = False
         self.winner = None
         self.last_move = None
+        self.forbidden_rule = forbidden_rule
     
     def move(self, player, x, y):
         # return: {'success': bool, 'winner': int-0/1/2, 'msg': str}
@@ -27,6 +31,20 @@ class GomokuGame:
         # 是否轮到当前玩家
         if self.current_player != player:
             return {'success': False, 'winner': 0, 'msg': '你彪啊？还没轮到你下棋！'}
+        # 禁手判断
+        is_forbidden = False
+        forbidden_type = ''
+        win = False
+        if self.forbidden_rule and player == 1:
+            # 先假设落子
+            self.board[x][y] = player
+            win = self.check_win(player, x, y, exact_five=True)
+            self.board[x][y] = 0
+            forbidden_type = self.check_forbidden(x, y)
+            if forbidden_type and not win:
+                self.board[x][y] = 0
+                return {'success': False, 'winner': 0, 'msg': f'黑方禁手[{forbidden_type}]，禁止落子！'}
+        # 真正落子
         self.board[x][y] = player
         self.last_move = (player, x, y)
         if self.check_win(player, x, y):
@@ -40,26 +58,145 @@ class GomokuGame:
         else:
             self.current_player = 2 if player == 1 else 1
             return {'success': True, 'winner': 0, 'msg': ''}
-    
-    def check_win(self, player, x, y):
-        # 检查8个方向，是否有连续5子
-        directions = [
-            (1, 0), (0, 1), (1, 1), (1, -1)
-        ]
+
+    # 包含x,y，4个方向的最长连续个数，返回list，每个方向一个数
+    def continuous_num(self, x, y, player):
+        if self.board[x][y] != player:
+            return [0, 0, 0, 0] # 如果x,y不是player，还连个锤子
+        directions = [(1, 0), (0, 1), (1, 1), (1, -1)]
+        counts = []
         for dx, dy in directions:
-            count = 1
-            for d in [1, -1]:
+            count = 0
+            for d in [1, -1]: # 1 正方向，-1 反方向
                 nx, ny = x, y
                 while True:
-                    nx += dx * d
-                    ny += dy * d
+                    nx, ny = nx + dx * d, ny + dy * d
                     if 0 <= nx < self.board_size[0] and 0 <= ny < self.board_size[1] and self.board[nx][ny] == player:
                         count += 1
                     else:
                         break
-            if count >= 5:
-                return True
-        return False
+            counts.append(count+1) # 包含x,y本身
+        return counts
+    
+    def check_win(self, player, x, y, exact_five=False):
+        # 检查8个方向，是否有连续5子
+        counts = self.continuous_num(x, y, player)
+        if exact_five:
+            return 5 in counts
+        else:
+            return max(counts) >= 5
+    
+    def check_forbidden(self, x, y, depth=0): # False表示不禁手，否则返回禁手类型字符串
+        # 检查禁手：双活三、双四、长连
+        indent = '  ' * depth
+        #print(f"{indent}check_forbidden: 检查({x},{y}) depth={depth}")
+        temp = self.board[x][y]
+        self.board[x][y] = 1 # 模拟落子
+        counts = self.continuous_num(x, y, 1)
+        if 5 in counts:
+            result = False # 恰好成5，不禁手
+            print(f"{indent}  -> 恰好成5，不禁手")
+        elif max(counts) >= 6:
+            result = '长连'
+            print(f"{indent}  -> 长连")
+        elif self.four_count(x, y) >= 2:
+            print('four_count', self.four_count(x, y))
+            result = '双四'
+            print(f"{indent}  -> 双四")
+        elif self.live_three_count(x, y, depth=depth+1) >= 2:
+            result = '双活三'
+            print(f"{indent}  -> 双活三")
+        else:
+            result = False
+            print(f"{indent}  -> 非禁手")
+        self.board[x][y] = temp # 恢复
+        return result
+    
+    # 沿一条直线，判断黑棋在x,y落子后，能形成几个四
+    def four_count_one_line(self, x, y, dx, dy):
+        zero_position = None # 记录能成5的0的位置，最后再看一下是否有两个0间隔4，如果有则说明是活四，而不是双死四
+        all_four_count = 0
+        live_four_count = 0
+        # 每个方向
+        for d in [1, -1]:
+            for i in range(1, 5): # 往前最多看4个，1, 2, 3, 4
+                nx, ny = x + dx * i * d, y + dy * i * d
+                if 0 <= nx < self.board_size[0] and 0 <= ny < self.board_size[1]:
+                    if self.board[nx][ny] == 0:
+                        # 找到空白，判断填上后是否恰好成5
+                        temp = self.board[nx][ny]
+                        self.board[nx][ny] = 1
+                        counts = self.continuous_num(nx, ny, 1)
+                        if 5 in counts:
+                            all_four_count += 1
+                            # 正方向记录0的位置，反方向时查找是否有记录且间隔4（距离5）
+                            if d == 1:
+                                zero_position = i
+                            else:
+                                if zero_position is not None and zero_position + i == 5:
+                                    # 活四
+                                    live_four_count += 1
+                                    all_four_count -= 1 # 如果是活四，死四会被多算一次
+                                else:
+                                    pass # 无事发生
+                        self.board[nx][ny] = temp # 恢复
+                        break # 找到空白，可以停止
+                    elif self.board[nx][ny] == 2:
+                        break # 遇到白棋，可以停止
+                else:
+                    break # 越界，可以停止
+        return all_four_count, live_four_count
+
+    # 黑在x,y落子后成了几个四（all_four_count），几个活四（live_four_count）
+    def four_count(self, x, y):
+        # 8个方向查找，看到0则判断：如果把这个0填上，是否恰好成5，然后停止当前方向查找
+        directions = [(1, 0), (0, 1), (1, 1), (1, -1)]
+        all_four_count = 0
+        live_four_count = 0
+        for dx, dy in directions:
+            all_four_count_one_line, live_four_count_one_line = self.four_count_one_line(x, y, dx, dy)
+            all_four_count += all_four_count_one_line
+            live_four_count += live_four_count_one_line
+        # return all_four_count, live_four_count
+        return all_four_count # 只返回all_four_count
+
+    def live_three_count(self, x, y, depth=0):
+        indent = '  ' * depth
+        # print(f"{indent}live_three_count: 检查({x},{y}) depth={depth}")
+        directions = [(1, 0), (0, 1), (1, 1), (1, -1)] # 4条直线
+        live_three_count = 0
+        for dx, dy in directions:
+            flag = False # 一个方向最多一个活三，找到就换下一个方向
+            # 每个方向
+            for d in [1, -1]:
+                if flag:
+                    break
+                for i in range(1, 4): # 往前最多看3个，1, 2, 3
+                    if flag:
+                        break
+                    nx, ny = x + dx * i * d, y + dy * i * d
+                    if 0 <= nx < self.board_size[0] and 0 <= ny < self.board_size[1]:
+                        if self.board[nx][ny] == 0:
+                            # 找到空白，然后：
+                            # 1.判断填上后是否恰好成活四，如果是，说明是形式活三
+                            temp = self.board[nx][ny]
+                            self.board[nx][ny] = 1
+                            # 只需要live_four_count
+                            _, live_four_count = self.four_count_one_line(nx, ny, dx, dy)
+                            self.board[nx][ny] = temp # 恢复
+                            if live_four_count >= 1:
+                                # 2. 判断该点是否禁手
+                                if not self.check_forbidden(nx, ny, depth=depth+1):
+                                    live_three_count += 1
+                                    flag = True
+                                    print(f"{indent}  -> 方向({dx},{dy}) {d}步{i} 形成活三")
+                            break # 找到空白，可以停止
+                        elif self.board[nx][ny] == 2:
+                            break # 遇到白棋，可以停止
+                    else:
+                        break # 越界，可以停止
+        print(f"{indent}live_three_count: ({x},{y}) 结果={live_three_count}")
+        return live_three_count
     
     def is_full(self):
         for row in self.board:
@@ -137,17 +274,19 @@ class GomokuGame:
             'game_over': self.game_over,
             'winner': self.winner,
             'last_move': self.last_move,
+            'forbidden_rule': self.forbidden_rule,
         }
 
     @classmethod
     def from_dict(cls, data):
-        obj = cls()
+        obj = cls(data.get('forbidden_rule', False))
         obj.board_size = tuple(data.get('board_size', (15, 15)))
         obj.board = data.get('board', [[0]*15 for _ in range(15)])
         obj.current_player = data.get('current_player', 1)
         obj.game_over = data.get('game_over', False)
         obj.winner = data.get('winner', None)
         obj.last_move = tuple(data.get('last_move')) if data.get('last_move') else None
+        obj.forbidden_rule = data.get('forbidden_rule', False)
         return obj
 
 
@@ -168,14 +307,18 @@ class GomokuBot(ChessGameBase):
         text = msg.text.strip()
         # 开房
         if text.startswith('开房'):
+            forbidden = '禁' in text
             room_id = self.new_room_id()
             self.rooms[room_id] = {
-                'game': GomokuGame(),
+                'game': GomokuGame(forbidden_rule=forbidden),
                 'players': [{'id': user_id, 'name': msg.talker_name}],
                 'status': 'waiting',
             }
             self.user_room[user_id] = room_id
-            await msg.reply(f"房间已创建，房间号: {room_id}，等待其他玩家加入。")
+            if forbidden:
+                await msg.reply(f"房间已创建（带禁手），房间号: {room_id}，等待其他玩家加入。")
+            else:
+                await msg.reply(f"房间已创建，房间号: {room_id}，等待其他玩家加入。")
         # 加入
         elif text.startswith('加入'):
             room_id = text[2:].strip()
@@ -293,3 +436,39 @@ class GomokuBot(ChessGameBase):
             'players': data['players'],
             'status': data['status']
         }
+
+if __name__ == "__main__":
+    # 测试禁手规则
+    # 0空1黑2白
+    board = [[0]*15 for _ in range(15)]
+    board[8][3] = 1
+    board[7][1] = 1
+    board[7][2] = 1
+    board[7][5] = 0
+    board[10][3] = 1
+    board[9][0] = 1
+    board[9][1] = 1
+    board[9][2] = 1
+    board[9][4] = 1
+    board[9][5] = 1
+    game = GomokuGame(forbidden_rule=True)
+    game.board = board
+    forbidden_points = []
+    for x in range(15):
+        for y in range(15):
+            if game.board[x][y] == 0:
+                # game.board[x][y] = 1
+                # 检查黑方在(x, y)落子是否禁手
+                forbidden_type = game.check_forbidden(x, y)
+                if forbidden_type:
+                    forbidden_points.append((x, y, forbidden_type))
+    # 打印棋盘
+    print("当前棋盘：")
+    letters = [chr(ord('A') + i) for i in range(15)]
+    print('   ' + ' '.join([str(i+1) for i in range(15)]))
+    for i in range(15):
+        print(f'{letters[i]:2s} ' + ' '.join(str(cell) for cell in board[i]))
+    # 打印禁手点
+    print("禁手点（行列/类型）：")
+    for x, y, t in forbidden_points:
+        print(f"{letters[x]}{y+1} : {t}")
